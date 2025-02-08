@@ -1,36 +1,43 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Plant Identifier
+
+**Plant Identifier** is a modern Next.js web application that lets users upload a plant image and leverages Google Generative AI to identify the plant and provide comprehensive care information. The application extracts key details such as the common name, scientific name, care requirements, interesting facts, and warnings, displaying them in an easy-to-read format.
+
+## Features
+
+- **Image Upload:**  
+  Easily upload an image of a plant from your device.
+
+- **AI-Powered Identification:**  
+  Uses Google Generative AI to analyze the image and generate detailed plant information.
+
+- **Detailed Plant Information:**  
+  Extracts and displays:
+  - **Common Name**
+  - **Scientific Name**
+  - **Care Requirements** (including water, sunlight, and soil recommendations)
+  - **Interesting Facts**
+  - **Warnings** (e.g., toxicity or handling precautions)
+
+- **Responsive Design:**  
+  Built with Next.js and Tailwind CSS for a modern, responsive, and user-friendly interface.
+
+- **Robust Error Handling:**  
+  Provides clear loading states and error messages to ensure a smooth user experience.
+
+## Technologies Used
+
+- **Next.js:** A powerful React framework for building server-side rendered and static web applications.
+- **Tailwind CSS:** A utility-first CSS framework that speeds up UI development.
+- **Google Generative AI:** Leverages the Gemini model to identify plants and generate care information.
+- **React Hooks:** For efficient state management in client-side components.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Node.js** (v14 or later)
+- **npm** or **Yarn**
+- A valid Google API key with access to the Gemini model.  
+  Create a `.env` file in the project root and add:
+  ```env
+  GEMINI_API_KEY=your-google-api-key
