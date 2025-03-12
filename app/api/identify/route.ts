@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { NextRequest, NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // Ensure API key is available
 const apiKey: string | undefined = process.env.GEMINI_API_KEY;
@@ -12,7 +12,7 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    // Get the form data
+    // Get the form data with explicit typing for formData.get
     const formData: FormData = await request.formData();
     const imageFile: File | null = formData.get('image') as File | null;
 
