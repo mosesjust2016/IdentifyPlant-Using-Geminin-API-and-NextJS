@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
     const plantInfo = parsePlantInfo(responseText)
 
     return NextResponse.json(plantInfo)
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error processing image:', error instanceof Error ? error.message : error)
     return NextResponse.json(
       { error: `Error: ${error instanceof Error ? error.message : 'Unknown error'}` },
