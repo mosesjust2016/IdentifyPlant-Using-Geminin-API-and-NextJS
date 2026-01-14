@@ -1,333 +1,356 @@
 'use client'
 
-import { useState } from 'react'
-import { Upload } from 'lucide-react'
-
-const MAX_FILE_SIZE = 7 * 1024 * 1024 // 7MB to match API
-
-// Define types matching the API response structure
-interface CareRequirements {
-  watering: string;
-  sunlight: string;
-  soil: string;
-  temperature: string;
-  humidity: string;
-  fertilizing: string;
-}
-
-interface GrowthCharacteristics {
-  size: string;
-  growthRate: string;
-  lifespan: string;
-}
-
-interface PlantInfo {
-  commonName: string;
-  scientificName: string;
-  family: string;
-  nativeRegion: string;
-  careRequirements: CareRequirements;
-  growthCharacteristics: GrowthCharacteristics;
-  interestingFacts: string[];
-  warnings: string[];
-  identificationConfidence: string;
-  similarPlants: string[];
-  modelUsed?: string;
-  analysisTimestamp?: string;
-}
-
-interface ApiResponse {
-  success: boolean;
-  model?: string;
-  responseTime?: string;
-  timestamp?: string;
-  data: PlantInfo;
-  error?: string;
-  message?: string;
-}
-
-interface ErrorAlertProps {
-  message: string;
-}
-
-const ErrorAlert: React.FC<ErrorAlertProps> = ({ message }) => (
-  <div className="mt-8 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-    {message}
-  </div>
-)
+import { useState, useRef, ChangeEvent } from 'react'
+import Image from 'next/image'
 
 export default function Home() {
-  const [selectedImage, setSelectedImage] = useState<File | null>(null)
-  const [preview, setPreview] = useState<string | null>(null)
-  const [plantInfo, setPlantInfo] = useState<PlantInfo | null>(null)
-  const [loading, setLoading] = useState<boolean>(false)
-  const [error, setError] = useState<string | null>(null)
+  const [image, setImage] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string>('')
+  const [plantData, setPlantData] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string>('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const validateFile = (file: File | undefined): void => {
-    if (!file) {
-      throw new Error('Please select an image file.')
-    }
-    if (!file.type.startsWith('image/')) {
-      throw new Error('Please upload an image file (JPEG, PNG, etc.).')
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      throw new Error('File size must be less than 7MB.')
-    }
+  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setImage(file)
+    setPlantData(null)
+    setError('')
+
+    // Create preview URL
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
   }
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    try {
-      const file = e.target.files?.[0]
-      validateFile(file)
-      if (file) {
-        setSelectedImage(file)
-        setPlantInfo(null) // Reset previous results
-        setError(null)
-        const objectUrl = URL.createObjectURL(file)
-        setPreview(objectUrl)
-      }
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message)
-      } else {
-        setError('An unexpected error occurred')
-      }
-    }
-  }
-
-  const identifyPlant = async (): Promise<void> => {
-    if (!selectedImage) {
-      setError('No image selected')
+  const handleIdentifyPlant = async () => {
+    if (!image) {
+      setError('Please select an image first')
       return
     }
 
     setLoading(true)
-    setError(null)
-    setPlantInfo(null)
+    setError('')
+    
+    const formData = new FormData()
+    formData.append('image', image)
 
     try {
-      const formData = new FormData()
-      formData.append('image', selectedImage)
-
       const response = await fetch('/api/identify', {
         method: 'POST',
         body: formData,
       })
 
-      const data: ApiResponse = await response.json()
+      const data = await response.json()
       
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || `HTTP error! status: ${response.status}`)
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Failed to identify plant')
       }
 
-      setPlantInfo(data.data)
+      setPlantData(data.data)
     } catch (err) {
-      if (err instanceof Error) {
-        setError(`Error identifying plant: ${err.message}`)
-      } else {
-        setError('Error identifying plant. Please try again.')
-      }
-      console.error('Processing Error:', err)
+      setError(err instanceof Error ? err.message : 'An error occurred')
+      console.error('Error:', err)
     } finally {
       setLoading(false)
     }
   }
 
-  const getConfidenceColor = (confidence: string) => {
-    switch (confidence) {
-      case 'High': return 'text-green-600 bg-green-100'
-      case 'Medium': return 'text-yellow-600 bg-yellow-100'
-      case 'Low': return 'text-red-600 bg-red-100'
-      default: return 'text-gray-600 bg-gray-100'
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      const file = files[0]
+      if (file.type.startsWith('image/')) {
+        setImage(file)
+        setPlantData(null)
+        setError('')
+        
+        const url = URL.createObjectURL(file)
+        setPreviewUrl(url)
+      } else {
+        setError('Please upload an image file')
+      }
     }
   }
 
   return (
-    <main className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold text-green-800 mb-4">Plant Identifier</h1>
-        <p className="text-lg text-gray-600">
-          Upload a photo of any plant to identify it and learn more
-        </p>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
-        <div className="flex flex-col items-center justify-center">
-          <label
-            className="w-full max-w-lg h-64 flex flex-col items-center justify-center border-2 border-dashed border-green-300 rounded-lg cursor-pointer hover:bg-green-50 transition-colors"
-            htmlFor="plant-image"
-          >
-            <Upload className="w-12 h-12 text-green-500 mb-2" />
-            <span className="text-gray-600">Click to upload a plant image</span>
-            <span className="text-sm text-gray-500 mt-1">(Max size: 7MB)</span>
-            <input
-              id="plant-image"
-              type="file"
-              className="hidden"
-              accept="image/*"
-              onChange={handleImageUpload}
-            />
-          </label>
-
-          {preview && (
-            <div className="mt-8 relative w-full max-w-lg h-64">
-              <img
-                src={preview}
-                alt="Uploaded plant"
-                className="rounded-lg object-cover w-full h-full"
-              />
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-50">
+      <div className="container mx-auto px-4 py-12 max-w-6xl">
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-green-500 rounded-xl flex items-center justify-center">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
             </div>
-          )}
-
-          {preview && !loading && !plantInfo && (
-            <button
-              onClick={identifyPlant}
-              className="mt-4 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-            >
-              Identify Plant
-            </button>
-          )}
+            <h1 className="text-4xl md:text-5xl font-bold text-gray-800">Plant Identifier</h1>
+          </div>
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            Upload a photo of any plant and get instant identification with care instructions using AI
+          </p>
         </div>
 
-        {loading && (
-          <div className="mt-8 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-green-500 border-t-transparent"></div>
-            <p className="mt-2 text-gray-600">Analyzing your plant...</p>
-          </div>
-        )}
-
-        {error && <ErrorAlert message={error} />}
-
-        {plantInfo && (
-          <div className="mt-8 p-6 bg-green-50 rounded-lg">
-            {/* Header with name and confidence */}
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-800">{plantInfo.commonName}</h2>
-                <p className="text-lg text-gray-600 italic">{plantInfo.scientificName}</p>
-                <p className="text-sm text-gray-500">Family: {plantInfo.family}</p>
-              </div>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getConfidenceColor(plantInfo.identificationConfidence)}`}>
-                {plantInfo.identificationConfidence} Confidence
-              </span>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Upload Section */}
+          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Upload Plant Image</h2>
+            
+            <div 
+              className={`border-3 border-dashed rounded-2xl p-8 text-center transition-all duration-200 ${
+                previewUrl 
+                  ? 'border-green-300 bg-green-50' 
+                  : 'border-gray-300 hover:border-green-400 hover:bg-gray-50'
+              }`}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageUpload}
+                accept="image/*"
+                className="hidden"
+              />
+              
+              {previewUrl ? (
+                <div className="relative w-full h-64 md:h-80 rounded-lg overflow-hidden mb-4">
+                  <Image
+                    src={previewUrl}
+                    alt="Plant preview"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    className="object-cover"
+                    priority={false}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="w-20 h-20 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                    <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-700 mb-2">
+                    <span className="font-semibold text-green-600">Click to upload</span> or drag and drop
+                  </p>
+                  <p className="text-gray-500 text-sm">
+                    PNG, JPG, WebP up to 7MB
+                  </p>
+                </>
+              )}
             </div>
 
-            {/* Native Region */}
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-700 mb-2">🌍 Native Region</h3>
-              <p className="text-gray-700">{plantInfo.nativeRegion}</p>
-            </div>
-
-            {/* Care Requirements */}
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-700 mb-3">🌱 Care Requirements</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-white p-3 rounded-lg">
-                  <span className="font-medium text-blue-600">💧 Watering:</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.watering}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg">
-                  <span className="font-medium text-yellow-600">☀️ Sunlight:</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.sunlight}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg">
-                  <span className="font-medium text-amber-700">🪴 Soil:</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.soil}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg">
-                  <span className="font-medium text-red-500">🌡️ Temperature:</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.temperature}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg">
-                  <span className="font-medium text-cyan-600">💨 Humidity:</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.humidity}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg">
-                  <span className="font-medium text-green-600">🧪 Fertilizing:</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.fertilizing}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Growth Characteristics */}
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-700 mb-3">📏 Growth Characteristics</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="bg-white p-3 rounded-lg text-center">
-                  <span className="font-medium text-gray-600">Size</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.growthCharacteristics.size}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg text-center">
-                  <span className="font-medium text-gray-600">Growth Rate</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.growthCharacteristics.growthRate}</p>
-                </div>
-                <div className="bg-white p-3 rounded-lg text-center">
-                  <span className="font-medium text-gray-600">Lifespan</span>
-                  <p className="text-gray-700 text-sm mt-1">{plantInfo.growthCharacteristics.lifespan}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Interesting Facts */}
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-700 mb-3">✨ Interesting Facts</h3>
-              <ul className="space-y-2">
-                {plantInfo.interestingFacts.map((fact, index) => (
-                  <li key={index} className="flex items-start">
-                    <span className="text-green-500 mr-2">•</span>
-                    <span className="text-gray-700">{fact}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Warnings */}
-            {plantInfo.warnings.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-semibold text-red-700 mb-3">⚠️ Warnings</h3>
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <ul className="space-y-2">
-                    {plantInfo.warnings.map((warning, index) => (
-                      <li key={index} className="flex items-start">
-                        <span className="text-red-500 mr-2">•</span>
-                        <span className="text-red-700">{warning}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+            {error && (
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.998-.833-2.732 0L4.346 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <p className="text-red-700">{error}</p>
               </div>
             )}
 
-            {/* Similar Plants */}
-            {plantInfo.similarPlants.length > 0 && (
-              <div className="mb-4">
-                <h3 className="font-semibold text-gray-700 mb-3">🌿 Similar Plants</h3>
-                <div className="flex flex-wrap gap-2">
-                  {plantInfo.similarPlants.map((plant, index) => (
-                    <span key={index} className="bg-white px-3 py-1 rounded-full text-sm text-gray-600 border">
-                      {plant}
-                    </span>
-                  ))}
+            <button
+              onClick={handleIdentifyPlant}
+              disabled={!image || loading}
+              className={`w-full mt-6 py-4 px-6 rounded-xl font-semibold text-lg transition-all duration-200 flex items-center justify-center gap-3 ${
+                !image || loading
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-green-600 hover:bg-green-700 text-white hover:shadow-lg transform hover:-translate-y-0.5'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Identifying...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                  Identify Plant
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Results Section */}
+          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Plant Information</h2>
+            
+            {plantData ? (
+              <div className="space-y-6 animate-fade-in">
+                {/* Identification Confidence */}
+                <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
+                  plantData.identificationConfidence === 'High' 
+                    ? 'bg-green-100 text-green-800' 
+                    : plantData.identificationConfidence === 'Medium'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  {plantData.identificationConfidence} Confidence
+                </div>
+
+                {/* Plant Names */}
+                <div>
+                  <h3 className="text-3xl font-bold text-gray-800 mb-1">{plantData.commonName}</h3>
+                  <p className="text-gray-600 italic">{plantData.scientificName}</p>
+                  {plantData.family && <p className="text-gray-500 mt-1">Family: {plantData.family}</p>}
+                  {plantData.nativeRegion && <p className="text-gray-500">Native to: {plantData.nativeRegion}</p>}
+                </div>
+
+                {/* Care Requirements */}
+                <div className="bg-green-50 rounded-xl p-5">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                    Care Instructions
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-sm text-gray-500">💧 Watering</p>
+                        <p className="text-gray-800">{plantData.careRequirements.watering}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">☀️ Sunlight</p>
+                        <p className="text-gray-800">{plantData.careRequirements.sunlight}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">🪴 Soil</p>
+                        <p className="text-gray-800">{plantData.careRequirements.soil}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-sm text-gray-500">🌡️ Temperature</p>
+                        <p className="text-gray-800">{plantData.careRequirements.temperature}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">💦 Humidity</p>
+                        <p className="text-gray-800">{plantData.careRequirements.humidity}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">🌱 Fertilizing</p>
+                        <p className="text-gray-800">{plantData.careRequirements.fertilizing}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interesting Facts */}
+                {plantData.interestingFacts && plantData.interestingFacts.length > 0 && (
+                  <div>
+                    <h4 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      Interesting Facts
+                    </h4>
+                    <ul className="space-y-2">
+                      {plantData.interestingFacts.map((fact: string, index: number) => (
+                        <li key={index} className="flex items-start gap-2">
+                          <svg className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          <span className="text-gray-700">{fact}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Warnings */}
+                {plantData.warnings && plantData.warnings.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+                    <h4 className="text-lg font-semibold text-red-800 mb-3 flex items-center gap-2">
+                      <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.998-.833-2.732 0L4.346 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                      Warnings
+                    </h4>
+                    <ul className="space-y-2">
+                      {plantData.warnings.map((warning: string, index: number) => (
+                        <li key={index} className="flex items-start gap-2">
+                          <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+                            <line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" strokeWidth="2" />
+                            <line x1="12" y1="16" x2="12" y2="16" stroke="currentColor" strokeWidth="2" />
+                          </svg>
+                          <span className="text-red-700">{warning}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Similar Plants */}
+                {plantData.similarPlants && plantData.similarPlants.length > 0 && (
+                  <div>
+                    <h4 className="text-lg font-semibold text-gray-800 mb-3">Similar Plants</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {plantData.similarPlants.map((plant: string, index: number) => (
+                        <span key={index} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-full text-sm">
+                          {plant}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Technical Info */}
+                <div className="text-sm text-gray-500 border-t pt-4">
+                  <p>Analysis time: {plantData.responseTime || 'N/A'}</p>
                 </div>
               </div>
+            ) : (
+              <div className="text-center py-12">
+                <div className="w-24 h-24 mx-auto mb-6 text-gray-300">
+                  <svg className="w-full h-full" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-700 mb-2">No Plant Identified Yet</h3>
+                <p className="text-gray-500 max-w-md mx-auto">
+                  Upload a plant image to get detailed information including care instructions, interesting facts, and warnings.
+                </p>
+              </div>
             )}
-
-            {/* Try another button */}
-            <div className="mt-6 text-center">
-              <button
-                onClick={() => {
-                  setPlantInfo(null)
-                  setPreview(null)
-                  setSelectedImage(null)
-                }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Identify Another Plant
-              </button>
-            </div>
           </div>
-        )}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-12 pt-8 border-t border-gray-200 text-center text-gray-500 text-sm">
+          <p>Powered by MJ • Built with Next.js & Tailwind CSS</p>
+          <p className="mt-2">
+            Need help? Check the{' '}
+            <a 
+              href="https://makersuite.google.com/app/apikey" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-green-600 hover:text-green-700 font-medium"
+            >
+              Gemini API documentation
+            </a>
+          </p>
+        </div>
       </div>
-    </main>
+    </div>
   )
 }
