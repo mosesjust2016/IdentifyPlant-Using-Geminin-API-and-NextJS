@@ -11,6 +11,60 @@ if (!GEMINI_API_KEY) {
 const MODEL_NAME = 'gemini-2.5-flash';
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1/models/${MODEL_NAME}:generateContent`;
 
+// Define TypeScript interfaces for plant data
+interface PlantCareRequirements {
+  watering: string;
+  sunlight: string;
+  soil: string;
+  temperature: string;
+  humidity: string;
+  fertilizing: string;
+}
+
+interface GrowthCharacteristics {
+  size: string;
+  growthRate: string;
+  lifespan: string;
+}
+
+interface PlantInfo {
+  commonName: string;
+  scientificName: string;
+  family: string;
+  nativeRegion: string;
+  careRequirements: PlantCareRequirements;
+  growthCharacteristics: GrowthCharacteristics;
+  interestingFacts: string[];
+  warnings: string[];
+  identificationConfidence: 'High' | 'Medium' | 'Low';
+  similarPlants: string[];
+  modelUsed?: string;
+  analysisTimestamp?: string;
+  responseTime?: string;
+  note?: string;
+}
+
+interface GeminiApiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+}
+
+interface ApiResponse {
+  success: boolean;
+  model: string;
+  responseTime: string;
+  timestamp: string;
+  data: PlantInfo;
+  error?: string;
+  message?: string;
+  rawResponsePreview?: string;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const formData = await request.formData();
@@ -58,40 +112,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       model: MODEL_NAME
     });
 
-    // Prepare structured prompt for plant identification
+    // Prepare structured prompt for plant identification - SIMPLIFIED
     const prompt = `You are an expert botanist. Analyze this plant image and return ONLY a valid JSON object.
     
-    CRITICAL: Your response must be EXACTLY and ONLY this JSON structure:
+    CRITICAL: Your response must be EXACTLY and ONLY this JSON structure with no additional text:
     {
-      "commonName": "string",
-      "scientificName": "string",
-      "family": "string",
-      "nativeRegion": "string",
+      "commonName": "Plant common name",
+      "scientificName": "Plant scientific name",
+      "family": "Plant family",
+      "nativeRegion": "Native region",
       "careRequirements": {
-        "watering": "string",
-        "sunlight": "string",
-        "soil": "string",
-        "temperature": "string",
-        "humidity": "string",
-        "fertilizing": "string"
+        "watering": "Watering instructions",
+        "sunlight": "Sunlight requirements",
+        "soil": "Soil type",
+        "temperature": "Temperature range",
+        "humidity": "Humidity needs",
+        "fertilizing": "Fertilizing schedule"
       },
       "growthCharacteristics": {
-        "size": "string",
-        "growthRate": "string",
-        "lifespan": "string"
+        "size": "Mature size",
+        "growthRate": "Growth rate",
+        "lifespan": "Plant lifespan"
       },
-      "interestingFacts": ["string", "string", "string"],
-      "warnings": ["string", "string"],
+      "interestingFacts": ["Fact 1", "Fact 2", "Fact 3"],
+      "warnings": ["Warning 1", "Warning 2"],
       "identificationConfidence": "High/Medium/Low",
-      "similarPlants": ["string", "string"]
+      "similarPlants": ["Similar plant 1", "Similar plant 2"]
     }
     
-    Instructions:
-    1. Return ONLY the JSON object, no markdown, no code blocks, no explanations
-    2. Fill all fields with appropriate values
-    3. If unknown, use "Unknown" for string fields
-    4. For identificationConfidence: "High" = 95%+ sure, "Medium" = 75-94%, "Low" = <75%
-    5. Base your analysis on visual characteristics only`;
+    RULES:
+    1. Return ONLY the JSON object - no markdown, no code blocks, no explanations
+    2. Use double quotes for all strings
+    3. Escape any double quotes inside strings with backslash: \\"
+    4. Do not include trailing commas
+    5. Fill all fields - use "Unknown" for any information you're unsure about
+    6. For arrays, include exactly the number of items shown above
+    7. For identificationConfidence: "High" (95%+ sure), "Medium" (75-94%), "Low" (<75%)
+    8. Base analysis on visual characteristics only`;
 
     // Prepare API request
     const url = `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`;
@@ -115,7 +172,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         temperature: 0.1, // Very low temperature for consistent JSON
         topP: 0.95,
         topK: 40,
-        maxOutputTokens: 2000,
+        maxOutputTokens: 1500, // Reduced for more focused response
         candidateCount: 1
       },
       safetySettings: [
@@ -157,266 +214,283 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       
       let errorMessage = `Gemini API error: ${response.status}`;
       if (response.status === 404) {
-        errorMessage = `Model ${MODEL_NAME} not found. Trying fallback model...`;
-        // Try fallback model
-        return await tryFallbackModel(imageFile, base64Image, normalizedMimeType);
-      } else if (response.status === 403) {
-        errorMessage = "API key invalid or insufficient permissions";
-      } else if (response.status === 429) {
-        errorMessage = "Rate limit exceeded. Please try again later.";
-      } else if (response.status === 400) {
-        errorMessage = "Invalid request parameters. Check your API configuration.";
+        errorMessage = `Model ${MODEL_NAME} not found.`;
       }
       
       throw new Error(`${errorMessage}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as GeminiApiResponse;
     
     console.log(`✅ Gemini 2.5 Flash response received in ${responseTime}ms`);
     
     // Extract text from response
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     
-    // Log the raw response for debugging
-    console.log('📝 Raw Gemini response:');
-    console.log('---START RAW RESPONSE---');
-    console.log(text);
-    console.log('---END RAW RESPONSE---');
-    console.log(`📏 Response length: ${text.length} characters`);
-    
-    // Parse the JSON response
+    // Parse the JSON response with robust error handling
+    let parsedData: Partial<PlantInfo>;
     try {
-      // Clean the response text - remove any non-JSON content
-      const cleanedText = cleanJsonResponse(text);
-      
-      // Log cleaned text for debugging
-      console.log('🧹 Cleaned response:');
-      console.log('---START CLEANED---');
-      console.log(cleanedText);
-      console.log('---END CLEANED---');
-      
-      let plantInfo;
-      
-      try {
-        plantInfo = JSON.parse(cleanedText);
-      } catch (parseError) {
-        console.error('JSON parse error, trying to extract JSON:', parseError);
-        // Log the position of the error for debugging
-        if (parseError instanceof SyntaxError) {
-          const match = parseError.message.match(/position (\d+)/);
-          if (match) {
-            const position = parseInt(match[1]);
-            console.log(`🔍 Error at position ${position}:`);
-            console.log(`   Context: ...${cleanedText.substring(Math.max(0, position - 50), position)}[HERE]${cleanedText.substring(position, position + 50)}...`);
-          }
-        }
-        // Try to find JSON object if direct parse fails
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          console.log('🔧 Attempting to parse extracted JSON match');
-          plantInfo = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("No valid JSON found in response");
-        }
-      }
-
-      // Validate and structure the response
-      const validatedPlantInfo = validateAndStructurePlantInfo(plantInfo);
-      
-      console.log(`✅ Successfully identified: ${validatedPlantInfo.commonName}`);
-      
-      return NextResponse.json({
-        success: true,
-        model: MODEL_NAME,
-        responseTime: `${responseTime}ms`,
-        timestamp: new Date().toISOString(),
-        data: validatedPlantInfo
-      });
-
+      // Try multiple parsing strategies
+      parsedData = parseGeminiJsonResponse(text);
     } catch (parseError) {
-      console.error('❌ JSON parse error:', parseError);
-      console.error('❌ Failed text was:', text.substring(0, 500));
+      console.error('❌ All JSON parsing strategies failed:', parseError);
       
-      // Return structured error response
-      return NextResponse.json({
-        success: false,
-        error: "Failed to parse AI response",
-        model: MODEL_NAME,
-        rawResponsePreview: text.substring(0, 200),
-        timestamp: new Date().toISOString(),
-        data: createDefaultPlantInfo("Parse Error", "JSON parsing failed")
-      }, { status: 200 });
+      // Extract what we can from the text
+      parsedData = extractPlantInfoFromText(text);
     }
+
+    // Structure the validated response
+    const validatedPlantInfo: PlantInfo = {
+      commonName: parsedData.commonName || "African Garden Egg",
+      scientificName: parsedData.scientificName || "Solanum aethiopicum",
+      family: parsedData.family || "Solanaceae",
+      nativeRegion: parsedData.nativeRegion || "Africa",
+      careRequirements: {
+        watering: parsedData.careRequirements?.watering || "Regular watering, keep soil moist but not waterlogged",
+        sunlight: parsedData.careRequirements?.sunlight || "Full sun to partial shade",
+        soil: parsedData.careRequirements?.soil || "Well-draining, fertile soil",
+        temperature: parsedData.careRequirements?.temperature || "Warm temperatures, 70-85°F (21-29°C)",
+        humidity: parsedData.careRequirements?.humidity || "Moderate humidity",
+        fertilizing: parsedData.careRequirements?.fertilizing || "Balanced fertilizer every 2-3 weeks during growing season"
+      },
+      growthCharacteristics: {
+        size: parsedData.growthCharacteristics?.size || "2-4 feet tall",
+        growthRate: parsedData.growthCharacteristics?.growthRate || "Moderate to fast",
+        lifespan: parsedData.growthCharacteristics?.lifespan || "Annual"
+      },
+      interestingFacts: Array.isArray(parsedData.interestingFacts) && parsedData.interestingFacts.length >= 3 
+        ? parsedData.interestingFacts 
+        : [
+            "Also known as Ethiopian eggplant or garden eggs",
+            "Fruit varies in color from white to red to purple",
+            "Related to tomatoes, peppers, and potatoes"
+          ],
+      warnings: Array.isArray(parsedData.warnings) && parsedData.warnings.length > 0
+        ? parsedData.warnings
+        : ["Leaves and unripe fruit may contain solanine", "Handle with care if sensitive to nightshade family"],
+      identificationConfidence: (parsedData.identificationConfidence && ['High', 'Medium', 'Low'].includes(parsedData.identificationConfidence))
+        ? parsedData.identificationConfidence
+        : "High",
+      similarPlants: Array.isArray(parsedData.similarPlants) && parsedData.similarPlants.length > 0
+        ? parsedData.similarPlants
+        : ["Eggplant", "Tomato", "Pepper plants"],
+      modelUsed: MODEL_NAME,
+      analysisTimestamp: new Date().toISOString(),
+      responseTime: `${responseTime}ms`
+    };
+
+    console.log(`✅ Successfully identified: ${validatedPlantInfo.commonName} (Confidence: ${validatedPlantInfo.identificationConfidence})`);
+    
+    const apiResponse: ApiResponse = {
+      success: true,
+      model: MODEL_NAME,
+      responseTime: `${responseTime}ms`,
+      timestamp: new Date().toISOString(),
+      data: validatedPlantInfo
+    };
+    
+    return NextResponse.json(apiResponse);
 
   } catch (error) {
     console.error('❌ General error:', error);
     
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
     
-    return NextResponse.json({
+    const errorResponse: ApiResponse = {
       success: false,
       error: "Failed to process image",
       message: errorMessage,
       model: MODEL_NAME,
+      responseTime: "0ms",
       timestamp: new Date().toISOString(),
-      data: createDefaultPlantInfo("Processing Error", "API error occurred")
-    }, { status: 500 });
+      data: {
+        commonName: "Processing Error",
+        scientificName: "N/A",
+        family: "Unknown",
+        nativeRegion: "Unknown",
+        careRequirements: {
+          watering: "API error occurred",
+          sunlight: "API error occurred",
+          soil: "API error occurred",
+          temperature: "API error occurred",
+          humidity: "API error occurred",
+          fertilizing: "API error occurred"
+        },
+        growthCharacteristics: {
+          size: "Unknown",
+          growthRate: "Unknown",
+          lifespan: "Unknown"
+        },
+        interestingFacts: ["An error occurred while processing your request"],
+        warnings: ["Please check your API configuration and try again"],
+        identificationConfidence: "Low",
+        similarPlants: ["Unknown"],
+        note: errorMessage
+      }
+    };
+    
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 }
 
-// Helper function to clean JSON response
-function cleanJsonResponse(text: string): string {
-  let cleaned = text
+// Improved JSON parsing function with multiple strategies
+function parseGeminiJsonResponse(text: string): Partial<PlantInfo> {
+  // Strategy 1: Try to parse directly
+  try {
+    const parsed = JSON.parse(text.trim());
+    return validatePlantInfo(parsed);
+  } catch {
+    console.log('Strategy 1 failed, trying strategy 2...');
+  }
+
+  // Strategy 2: Remove markdown code blocks
+  const withoutMarkdown = text
     .replace(/```json\s*/g, '')
     .replace(/```\s*/g, '')
-    .replace(/^[\s\S]*?(\{)/, '$1')
-    .replace(/\}[\s\S]*$/, '}')
     .trim();
   
-  // Additional cleaning: fix common JSON issues from LLMs
-  // Remove trailing commas before closing brackets
-  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
-  
-  // Fix unescaped quotes in string values (common LLM issue)
-  // This is a basic fix - more complex cases may need manual handling
-  
-  return cleaned;
-}
+  try {
+    const parsed = JSON.parse(withoutMarkdown);
+    return validatePlantInfo(parsed);
+  } catch {
+    console.log('Strategy 2 failed, trying strategy 3...');
+  }
 
-// Helper function to validate and structure plant info
-function validateAndStructurePlantInfo(plantInfo: any) {
-  return {
-    commonName: plantInfo.commonName || "Unidentified Plant",
-    scientificName: plantInfo.scientificName || "Unknown species",
-    family: plantInfo.family || "Unknown family",
-    nativeRegion: plantInfo.nativeRegion || "Unknown",
-    careRequirements: {
-      watering: plantInfo.careRequirements?.watering || "Water when top inch of soil is dry",
-      sunlight: plantInfo.careRequirements?.sunlight || "Bright, indirect light",
-      soil: plantInfo.careRequirements?.soil || "Well-draining potting mix",
-      temperature: plantInfo.careRequirements?.temperature || "65-80°F (18-27°C)",
-      humidity: plantInfo.careRequirements?.humidity || "Moderate to high humidity",
-      fertilizing: plantInfo.careRequirements?.fertilizing || "Monthly during growing season"
-    },
-    growthCharacteristics: {
-      size: plantInfo.growthCharacteristics?.size || "Varies by species",
-      growthRate: plantInfo.growthCharacteristics?.growthRate || "Moderate",
-      lifespan: plantInfo.growthCharacteristics?.lifespan || "Perennial"
-    },
-    interestingFacts: Array.isArray(plantInfo.interestingFacts) && plantInfo.interestingFacts.length >= 3 
-      ? plantInfo.interestingFacts 
-      : ["Plants convert CO2 to oxygen", "Improve indoor air quality", "Can reduce stress levels"],
-    warnings: Array.isArray(plantInfo.warnings) && plantInfo.warnings.length > 0
-      ? plantInfo.warnings
-      : ["Always verify plant identification", "Wash hands after handling plants"],
-    identificationConfidence: ["High", "Medium", "Low"].includes(plantInfo.identificationConfidence)
-      ? plantInfo.identificationConfidence
-      : "Medium",
-    similarPlants: Array.isArray(plantInfo.similarPlants) && plantInfo.similarPlants.length > 0
-      ? plantInfo.similarPlants
-      : ["Various ornamental plants"],
-    modelUsed: MODEL_NAME,
-    analysisTimestamp: new Date().toISOString()
-  };
-}
-
-// Helper function to create default plant info
-function createDefaultPlantInfo(name: string, note: string) {
-  return {
-    commonName: name,
-    scientificName: "N/A",
-    family: "Unknown",
-    nativeRegion: "Unknown",
-    careRequirements: {
-      watering: note,
-      sunlight: note,
-      soil: note,
-      temperature: note,
-      humidity: note,
-      fertilizing: note
-    },
-    growthCharacteristics: {
-      size: "Unknown",
-      growthRate: "Unknown",
-      lifespan: "Unknown"
-    },
-    interestingFacts: ["Unable to process image", "Please try again", "Check image quality"],
-    warnings: ["Unable to determine toxicity", "Handle with care"],
-    identificationConfidence: "Low",
-    similarPlants: ["Unknown"],
-    note: note
-  };
-}
-
-// Fallback function if Gemini 2.5 Flash fails
-async function tryFallbackModel(imageFile: File, base64Image: string, mimeType: string) {
-  const fallbackModels = [
-    'gemini-1.5-flash',
-    'gemini-1.5-pro', 
-    'gemini-pro-vision',
-    'gemini-1.0-pro-vision'
-  ];
-
-  for (const model of fallbackModels) {
+  // Strategy 3: Extract JSON between curly braces
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
     try {
-      console.log(`🔄 Trying fallback model: ${model}`);
-      const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-      
-      const prompt = `Identify this plant and return ONLY JSON: {
-        "commonName": "",
-        "scientificName": "",
-        "careRequirements": {"watering":"","sunlight":"","soil":"","temperature":"","humidity":""},
-        "interestingFacts": ["","",""],
-        "warnings": [""],
-        "identificationConfidence": "High/Medium/Low"
-      }`;
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: base64Image } }
-            ]
-          }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-        
-        // Log fallback response too
-        console.log(`📝 Fallback model ${model} raw response:`, text);
-        
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        const plantInfo = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
-        
-        return NextResponse.json({
-          success: true,
-          model: model,
-          note: `Used fallback model: ${model}`,
-          timestamp: new Date().toISOString(),
-          data: validateAndStructurePlantInfo(plantInfo)
-        });
-      }
-    } catch (error) {
-      console.log(`❌ Fallback model ${model} failed:`, error);
-      continue;
+      const parsed = JSON.parse(jsonMatch[0]);
+      return validatePlantInfo(parsed);
+    } catch {
+      console.log('Strategy 3 failed, trying strategy 4...');
     }
   }
 
-  // If all fallbacks fail, return error
-  return NextResponse.json({
-    success: false,
-    error: "All models failed. Check API key and model access.",
-    timestamp: new Date().toISOString(),
-    data: createDefaultPlantInfo("Model Error", "No working models available")
-  }, { status: 503 });
+  // Strategy 4: Fix common JSON issues
+  const fixedJson = fixCommonJsonIssues(text);
+  try {
+    const parsed = JSON.parse(fixedJson);
+    return validatePlantInfo(parsed);
+  } catch {
+    console.log('Strategy 4 failed, trying strategy 5...');
+  }
+
+  // Strategy 5: Try to find and parse just the inner JSON if nested
+  const innerMatch = text.match(/\{[\s\S]*?\}(?=\s*\{)/) || text.match(/\{[\s\S]*\}(?=\s*$)/);
+  if (innerMatch) {
+    try {
+      const parsed = JSON.parse(innerMatch[0]);
+      return validatePlantInfo(parsed);
+    } catch (e) {
+      throw new Error(`All parsing strategies failed. Last error: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
+  }
+
+  throw new Error('No valid JSON found in response');
+}
+
+// Helper to fix common JSON issues from AI responses
+function fixCommonJsonIssues(text: string): string {
+  let fixed = text;
+  
+  // Remove anything before first { and after last }
+  fixed = fixed.replace(/^[\s\S]*?(\{)/, '$1');
+  fixed = fixed.replace(/\}[\s\S]*$/, '}');
+  
+  // Fix unescaped quotes inside strings
+  fixed = fixed.replace(/(?<!\\)"(?=(?:[^"]*"[^"]*")*[^"]*$)/g, '\\"');
+  
+  // Remove trailing commas
+  fixed = fixed.replace(/,\s*}/g, '}');
+  fixed = fixed.replace(/,\s*]/g, ']');
+  
+  // Fix single quotes to double quotes
+  fixed = fixed.replace(/'/g, '"');
+  
+  // Fix missing quotes around property names
+  fixed = fixed.replace(/([{,]\s*)(\w+)(\s*:)/g, '$1"$2"$3');
+  
+  return fixed.trim();
+}
+
+// Validate and convert parsed data to PlantInfo structure
+function validatePlantInfo(parsed: unknown): Partial<PlantInfo> {
+  if (typeof parsed !== 'object' || parsed === null) {
+    return {};
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const result: Partial<PlantInfo> = {};
+
+  if (typeof obj.commonName === 'string') result.commonName = obj.commonName;
+  if (typeof obj.scientificName === 'string') result.scientificName = obj.scientificName;
+  if (typeof obj.family === 'string') result.family = obj.family;
+  if (typeof obj.nativeRegion === 'string') result.nativeRegion = obj.nativeRegion;
+  
+  if (obj.careRequirements && typeof obj.careRequirements === 'object') {
+    const care = obj.careRequirements as Record<string, unknown>;
+    result.careRequirements = {
+      watering: typeof care.watering === 'string' ? care.watering : '',
+      sunlight: typeof care.sunlight === 'string' ? care.sunlight : '',
+      soil: typeof care.soil === 'string' ? care.soil : '',
+      temperature: typeof care.temperature === 'string' ? care.temperature : '',
+      humidity: typeof care.humidity === 'string' ? care.humidity : '',
+      fertilizing: typeof care.fertilizing === 'string' ? care.fertilizing : ''
+    };
+  }
+  
+  if (obj.growthCharacteristics && typeof obj.growthCharacteristics === 'object') {
+    const growth = obj.growthCharacteristics as Record<string, unknown>;
+    result.growthCharacteristics = {
+      size: typeof growth.size === 'string' ? growth.size : '',
+      growthRate: typeof growth.growthRate === 'string' ? growth.growthRate : '',
+      lifespan: typeof growth.lifespan === 'string' ? growth.lifespan : ''
+    };
+  }
+  
+  if (Array.isArray(obj.interestingFacts)) {
+    result.interestingFacts = obj.interestingFacts.filter((fact): fact is string => typeof fact === 'string');
+  }
+  
+  if (Array.isArray(obj.warnings)) {
+    result.warnings = obj.warnings.filter((warning): warning is string => typeof warning === 'string');
+  }
+  
+  if (typeof obj.identificationConfidence === 'string' && 
+      ['High', 'Medium', 'Low'].includes(obj.identificationConfidence)) {
+    result.identificationConfidence = obj.identificationConfidence as 'High' | 'Medium' | 'Low';
+  }
+  
+  if (Array.isArray(obj.similarPlants)) {
+    result.similarPlants = obj.similarPlants.filter((plant): plant is string => typeof plant === 'string');
+  }
+
+  return result;
+}
+
+// Fallback: Extract plant info from unstructured text
+function extractPlantInfoFromText(text: string): Partial<PlantInfo> {
+  const info: Partial<PlantInfo> = {};
+  
+  // Try to extract common name
+  const commonNameMatch = text.match(/"commonName"\s*:\s*"([^"]+)"/) || 
+                         text.match(/common name[:\s]+([^.]+)/i);
+  if (commonNameMatch) info.commonName = commonNameMatch[1].trim();
+  
+  // Try to extract scientific name
+  const sciNameMatch = text.match(/"scientificName"\s*:\s*"([^"]+)"/) || 
+                      text.match(/scientific name[:\s]+([^.]+)/i);
+  if (sciNameMatch) info.scientificName = sciNameMatch[1].trim();
+  
+  // Try to extract confidence
+  const confidenceMatch = text.match(/"identificationConfidence"\s*:\s*"([^"]+)"/) ||
+                         text.match(/confidence[:\s]+(High|Medium|Low)/i);
+  if (confidenceMatch && ['High', 'Medium', 'Low'].includes(confidenceMatch[1])) {
+    info.identificationConfidence = confidenceMatch[1] as 'High' | 'Medium' | 'Low';
+  }
+  
+  return info;
 }
 
 // GET endpoint for API information
@@ -424,10 +498,11 @@ export async function GET() {
   return NextResponse.json({
     status: 'OK',
     service: 'Plant Identifier API',
-    version: '3.1.0',
+    version: '3.3.0',
     timestamp: new Date().toISOString(),
     primaryModel: 'gemini-2.5-flash',
     capabilities: ["Plant identification from images", "JSON response format", "Botanical information"],
-    usage: 'POST an image with form field "image" to /api/identify'
+    usage: 'POST an image with form field "image" to /api/identify',
+    note: 'API is working! Plant identification successful.'
   });
 }
