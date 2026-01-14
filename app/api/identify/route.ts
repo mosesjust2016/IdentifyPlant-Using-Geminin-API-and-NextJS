@@ -42,6 +42,9 @@ interface PlantInfo {
   warnings: string[];
   identificationConfidence: 'High' | 'Medium' | 'Low';
   similarPlants: string[];
+  // New fields for image search
+  imageSearchTerms: string[];
+  imageCount: number;
   modelUsed?: string;
   analysisTimestamp?: string;
   responseTime?: string;
@@ -201,31 +204,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       size: `${Math.round(imageFile.size / 1024)} KB`
     });
 
-    // Prepare structured prompt
-    const prompt = `Analyze this plant image and return ONLY valid JSON:
+    // Enhanced prompt that includes image search terms
+    const prompt = `Analyze this plant image and return ONLY valid JSON with the following structure:
     {
-      "commonName": "Common name",
-      "scientificName": "Scientific name",
+      "commonName": "Common name of the plant",
+      "scientificName": "Scientific/Latin name",
       "family": "Plant family",
-      "nativeRegion": "Native region",
+      "nativeRegion": "Native geographic region",
       "careRequirements": {
-        "watering": "Watering instructions",
-        "sunlight": "Sunlight requirements",
-        "soil": "Soil type",
-        "temperature": "Temperature range",
-        "humidity": "Humidity needs",
-        "fertilizing": "Fertilizing schedule"
+        "watering": "Detailed watering instructions",
+        "sunlight": "Sunlight exposure needs",
+        "soil": "Soil type and composition",
+        "temperature": "Ideal temperature range",
+        "humidity": "Humidity requirements",
+        "fertilizing": "Fertilization schedule"
       },
       "growthCharacteristics": {
-        "size": "Mature size",
-        "growthRate": "Growth rate",
-        "lifespan": "Plant lifespan"
+        "size": "Mature size dimensions",
+        "growthRate": "Growth speed (Fast/Moderate/Slow)",
+        "lifespan": "Expected lifespan"
       },
       "interestingFacts": ["Fact 1", "Fact 2", "Fact 3"],
       "warnings": ["Warning 1", "Warning 2"],
       "identificationConfidence": "High/Medium/Low",
-      "similarPlants": ["Similar plant 1", "Similar plant 2"]
-    }`;
+      "similarPlants": ["Plant 1", "Plant 2"],
+      "imageSearchTerms": ["Search term 1", "Search term 2", "Search term 3", "Search term 4"],
+      "imageCount": 6
+    }
+
+    IMPORTANT FOR IMAGE SEARCH:
+    1. "imageSearchTerms" should be 3-5 specific search terms that would help find similar images of this plant
+    2. Include terms like: plant name, flower color, leaf shape, growth habit, specific features
+    3. Examples: ["monstera deliciosa", "swiss cheese plant", "split leaf", "indoor tropical", "fenestrated leaves"]
+    4. "imageCount" should be a number between 4-8 for how many similar images to show`;
 
     // Try models in order with fallbacks
     let apiResult;
@@ -283,7 +294,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           warnings: ["Service temporarily unavailable"],
           identificationConfidence: "Low",
           similarPlants: ["Unknown"],
-          note: "All Gemini models are currently overloaded. Please try again later."
+          imageSearchTerms: ["plant", "nature", "green"],
+          imageCount: 4
         }
       }, { status: 503 });
     }
@@ -301,6 +313,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch {
       parsedData = extractPlantInfoFromText(text);
     }
+
+    // Generate image search terms if not provided by AI
+    const imageSearchTerms = generateImageSearchTerms(
+      parsedData.commonName || "plant",
+      parsedData.scientificName,
+      parsedData.family,
+      parsedData.careRequirements?.sunlight
+    );
 
     // Structure the validated response
     const validatedPlantInfo: PlantInfo = {
@@ -337,12 +357,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       similarPlants: Array.isArray(parsedData.similarPlants) && parsedData.similarPlants.length > 0
         ? parsedData.similarPlants
         : ["Various ornamental plants"],
+      // Image search data
+      imageSearchTerms: Array.isArray(parsedData.imageSearchTerms) && parsedData.imageSearchTerms.length > 0
+        ? parsedData.imageSearchTerms
+        : imageSearchTerms,
+      imageCount: typeof parsedData.imageCount === 'number' && parsedData.imageCount > 0
+        ? Math.min(Math.max(parsedData.imageCount, 4), 8) // Clamp between 4-8
+        : 6,
       modelUsed,
       analysisTimestamp: new Date().toISOString(),
       responseTime: `${responseTime}ms`
     };
 
     console.log(`✅ Successfully identified: ${validatedPlantInfo.commonName} using ${modelUsed} (${responseTime}ms)`);
+    console.log(`📸 Image search terms: ${validatedPlantInfo.imageSearchTerms.join(', ')}`);
     
     return NextResponse.json({
       success: true,
@@ -385,10 +413,71 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         warnings: ["Service error - try again"],
         identificationConfidence: "Low",
         similarPlants: ["Unknown"],
+        imageSearchTerms: ["plant", "nature", "green"],
+        imageCount: 4,
         note: error instanceof Error ? error.message : "Unknown error"
       }
     }, { status: 500 });
   }
+}
+
+// Generate image search terms based on plant data
+function generateImageSearchTerms(
+  commonName: string,
+  scientificName?: string,
+  family?: string,
+  sunlight?: string
+): string[] {
+  const terms = new Set<string>();
+  
+  // Add basic plant name terms
+  if (commonName && commonName !== "Plant") {
+    terms.add(commonName.toLowerCase());
+    // Add variations
+    const nameParts = commonName.toLowerCase().split(' ');
+    nameParts.forEach(part => {
+      if (part.length > 3) terms.add(part);
+    });
+  }
+  
+  // Add scientific name if available
+  if (scientificName && scientificName !== "Unknown species") {
+    const sciParts = scientificName.toLowerCase().split(' ');
+    sciParts.forEach(part => {
+      if (part.length > 3) terms.add(part);
+    });
+  }
+  
+  // Add family if available
+  if (family && family !== "Unknown family") {
+    terms.add(family.toLowerCase());
+  }
+  
+  // Add context terms based on sunlight needs
+  if (sunlight) {
+    if (sunlight.toLowerCase().includes('indoor')) terms.add('indoor plant');
+    if (sunlight.toLowerCase().includes('outdoor')) terms.add('outdoor plant');
+    if (sunlight.toLowerCase().includes('succulent') || sunlight.toLowerCase().includes('cactus')) {
+      terms.add('succulent');
+      terms.add('cactus');
+    }
+    if (sunlight.toLowerCase().includes('tropical')) terms.add('tropical plant');
+  }
+  
+  // Add general plant terms
+  terms.add('plant');
+  terms.add('foliage');
+  terms.add('greenery');
+  terms.add('botanical');
+  
+  // Convert to array and ensure we have at least 3 terms
+  const result = Array.from(terms);
+  if (result.length < 3) {
+    result.push('nature', 'garden', 'horticulture');
+  }
+  
+  // Return 3-5 terms
+  return result.slice(0, 5);
 }
 
 // Improved JSON parsing function
@@ -454,6 +543,15 @@ function parseGeminiJsonResponse(text: string): Partial<PlantInfo> {
       result.similarPlants = parsed.similarPlants.filter((p: unknown) => typeof p === 'string');
     }
     
+    // New fields for image search
+    if (Array.isArray(parsed.imageSearchTerms)) {
+      result.imageSearchTerms = parsed.imageSearchTerms.filter((t: unknown) => typeof t === 'string');
+    }
+    
+    if (typeof parsed.imageCount === 'number') {
+      result.imageCount = parsed.imageCount;
+    }
+    
     return result;
   } catch {
     throw new Error('Failed to parse JSON');
@@ -479,7 +577,7 @@ function extractPlantInfoFromText(text: string): Partial<PlantInfo> {
   return info;
 }
 
-// GET endpoint for API information
+// Simple GET for API status
 export async function GET() {
   return NextResponse.json({
     status: 'OK',
@@ -487,10 +585,10 @@ export async function GET() {
     version: '4.0.0',
     timestamp: new Date().toISOString(),
     features: [
-      'Automatic retry on overload (503 errors)',
+      'Plant identification from images',
+      'Automatic retry on overload',
       'Multiple model fallbacks',
-      'Exponential backoff retry logic',
-      'Graceful degradation'
+      'Image search term generation'
     ],
     models: {
       primary: PRIMARY_MODEL,
