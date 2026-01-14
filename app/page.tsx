@@ -3,15 +3,47 @@
 import { useState } from 'react'
 import { Upload } from 'lucide-react'
 
-const MAX_FILE_SIZE = 4 * 1024 * 1024 // 4MB
+const MAX_FILE_SIZE = 7 * 1024 * 1024 // 7MB to match API
 
-// Define types for the plant info structure matching the desired JSON format
+// Define types matching the API response structure
+interface CareRequirements {
+  watering: string;
+  sunlight: string;
+  soil: string;
+  temperature: string;
+  humidity: string;
+  fertilizing: string;
+}
+
+interface GrowthCharacteristics {
+  size: string;
+  growthRate: string;
+  lifespan: string;
+}
+
 interface PlantInfo {
   commonName: string;
   scientificName: string;
-  careRequirements: string;
-  interestingFacts: string;
-  warnings: string;
+  family: string;
+  nativeRegion: string;
+  careRequirements: CareRequirements;
+  growthCharacteristics: GrowthCharacteristics;
+  interestingFacts: string[];
+  warnings: string[];
+  identificationConfidence: string;
+  similarPlants: string[];
+  modelUsed?: string;
+  analysisTimestamp?: string;
+}
+
+interface ApiResponse {
+  success: boolean;
+  model?: string;
+  responseTime?: string;
+  timestamp?: string;
+  data: PlantInfo;
+  error?: string;
+  message?: string;
 }
 
 interface ErrorAlertProps {
@@ -39,7 +71,7 @@ export default function Home() {
       throw new Error('Please upload an image file (JPEG, PNG, etc.).')
     }
     if (file.size > MAX_FILE_SIZE) {
-      throw new Error('File size must be less than 4MB.')
+      throw new Error('File size must be less than 7MB.')
     }
   }
 
@@ -49,6 +81,8 @@ export default function Home() {
       validateFile(file)
       if (file) {
         setSelectedImage(file)
+        setPlantInfo(null) // Reset previous results
+        setError(null)
         const objectUrl = URL.createObjectURL(file)
         setPreview(objectUrl)
       }
@@ -80,13 +114,13 @@ export default function Home() {
         body: formData,
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+      const data: ApiResponse = await response.json()
+      
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || `HTTP error! status: ${response.status}`)
       }
 
-      // Expect the API to return the JSON matching our PlantInfo type
-      const data: PlantInfo = await response.json()
-      setPlantInfo(data)
+      setPlantInfo(data.data)
     } catch (err) {
       if (err instanceof Error) {
         setError(`Error identifying plant: ${err.message}`)
@@ -96,6 +130,15 @@ export default function Home() {
       console.error('Processing Error:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const getConfidenceColor = (confidence: string) => {
+    switch (confidence) {
+      case 'High': return 'text-green-600 bg-green-100'
+      case 'Medium': return 'text-yellow-600 bg-yellow-100'
+      case 'Low': return 'text-red-600 bg-red-100'
+      default: return 'text-gray-600 bg-gray-100'
     }
   }
 
@@ -116,7 +159,7 @@ export default function Home() {
           >
             <Upload className="w-12 h-12 text-green-500 mb-2" />
             <span className="text-gray-600">Click to upload a plant image</span>
-            <span className="text-sm text-gray-500 mt-1">(Max size: 4MB)</span>
+            <span className="text-sm text-gray-500 mt-1">(Max size: 7MB)</span>
             <input
               id="plant-image"
               type="file"
@@ -139,7 +182,7 @@ export default function Home() {
           {preview && !loading && !plantInfo && (
             <button
               onClick={identifyPlant}
-              className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              className="mt-4 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
             >
               Identify Plant
             </button>
@@ -157,44 +200,130 @@ export default function Home() {
 
         {plantInfo && (
           <div className="mt-8 p-6 bg-green-50 rounded-lg">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-4">Plant Information</h2>
-            <div className="space-y-4">
-              {plantInfo.commonName && (
-                <div>
-                  <h3 className="font-semibold text-gray-700">Common Name</h3>
-                  <p className="text-gray-700">{plantInfo.commonName}</p>
+            {/* Header with name and confidence */}
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">{plantInfo.commonName}</h2>
+                <p className="text-lg text-gray-600 italic">{plantInfo.scientificName}</p>
+                <p className="text-sm text-gray-500">Family: {plantInfo.family}</p>
+              </div>
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getConfidenceColor(plantInfo.identificationConfidence)}`}>
+                {plantInfo.identificationConfidence} Confidence
+              </span>
+            </div>
+
+            {/* Native Region */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-gray-700 mb-2">🌍 Native Region</h3>
+              <p className="text-gray-700">{plantInfo.nativeRegion}</p>
+            </div>
+
+            {/* Care Requirements */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-gray-700 mb-3">🌱 Care Requirements</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-white p-3 rounded-lg">
+                  <span className="font-medium text-blue-600">💧 Watering:</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.watering}</p>
                 </div>
-              )}
-              {plantInfo.scientificName && (
-                <div>
-                  <h3 className="font-semibold text-gray-700">Scientific Name</h3>
-                  <p className="text-gray-700">{plantInfo.scientificName}</p>
+                <div className="bg-white p-3 rounded-lg">
+                  <span className="font-medium text-yellow-600">☀️ Sunlight:</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.sunlight}</p>
                 </div>
-              )}
-              {plantInfo.careRequirements && (
-                <div>
-                  <h3 className="font-semibold text-gray-700">Care Requirements</h3>
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    {plantInfo.careRequirements}
-                  </p>
+                <div className="bg-white p-3 rounded-lg">
+                  <span className="font-medium text-amber-700">🪴 Soil:</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.soil}</p>
                 </div>
-              )}
-              {plantInfo.interestingFacts && (
-                <div>
-                  <h3 className="font-semibold text-gray-700">Interesting Facts</h3>
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    {plantInfo.interestingFacts}
-                  </p>
+                <div className="bg-white p-3 rounded-lg">
+                  <span className="font-medium text-red-500">🌡️ Temperature:</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.temperature}</p>
                 </div>
-              )}
-              {plantInfo.warnings && (
-                <div>
-                  <h3 className="font-semibold text-gray-700">Warnings</h3>
-                  <p className="text-gray-700 whitespace-pre-wrap">
-                    {plantInfo.warnings}
-                  </p>
+                <div className="bg-white p-3 rounded-lg">
+                  <span className="font-medium text-cyan-600">💨 Humidity:</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.humidity}</p>
                 </div>
-              )}
+                <div className="bg-white p-3 rounded-lg">
+                  <span className="font-medium text-green-600">🧪 Fertilizing:</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.careRequirements.fertilizing}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Growth Characteristics */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-gray-700 mb-3">📏 Growth Characteristics</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-white p-3 rounded-lg text-center">
+                  <span className="font-medium text-gray-600">Size</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.growthCharacteristics.size}</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg text-center">
+                  <span className="font-medium text-gray-600">Growth Rate</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.growthCharacteristics.growthRate}</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg text-center">
+                  <span className="font-medium text-gray-600">Lifespan</span>
+                  <p className="text-gray-700 text-sm mt-1">{plantInfo.growthCharacteristics.lifespan}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Interesting Facts */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-gray-700 mb-3">✨ Interesting Facts</h3>
+              <ul className="space-y-2">
+                {plantInfo.interestingFacts.map((fact, index) => (
+                  <li key={index} className="flex items-start">
+                    <span className="text-green-500 mr-2">•</span>
+                    <span className="text-gray-700">{fact}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Warnings */}
+            {plantInfo.warnings.length > 0 && (
+              <div className="mb-6">
+                <h3 className="font-semibold text-red-700 mb-3">⚠️ Warnings</h3>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <ul className="space-y-2">
+                    {plantInfo.warnings.map((warning, index) => (
+                      <li key={index} className="flex items-start">
+                        <span className="text-red-500 mr-2">•</span>
+                        <span className="text-red-700">{warning}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Similar Plants */}
+            {plantInfo.similarPlants.length > 0 && (
+              <div className="mb-4">
+                <h3 className="font-semibold text-gray-700 mb-3">🌿 Similar Plants</h3>
+                <div className="flex flex-wrap gap-2">
+                  {plantInfo.similarPlants.map((plant, index) => (
+                    <span key={index} className="bg-white px-3 py-1 rounded-full text-sm text-gray-600 border">
+                      {plant}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Try another button */}
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => {
+                  setPlantInfo(null)
+                  setPreview(null)
+                  setSelectedImage(null)
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Identify Another Plant
+              </button>
             </div>
           </div>
         )}
